@@ -1,0 +1,4641 @@
+{
+  "name": "PODCAST - LOCAL MARKET RESEARCH",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2752,
+        976
+      ],
+      "id": "c8bdbc1d-5bdc-4118-878e-563cb404f1ad",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://api.apify.com/v2/datasets/YOUR_DATASET_ID/items?token=YOUR_APIFY_API_TOKEN",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1488,
+        1360
+      ],
+      "id": "163e60e7-dbdc-4352-bd17-107ade836373",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const d = item.json;\n\n  // Parse histogram if it's a string\n  let histogram = {};\n  if (d.popularTimesHistogram && typeof d.popularTimesHistogram === \"string\") {\n    try {\n      histogram = JSON.parse(d.popularTimesHistogram);\n    } catch (e) {\n      histogram = {};\n    }\n  } else if (typeof d.popularTimesHistogram === \"object\" && d.popularTimesHistogram !== null) {\n    histogram = d.popularTimesHistogram;\n  }\n\n  // Find daily peak hours\n  const dailyPeaks = Object.entries(histogram || {}).map(([day, hours]) => {\n    if (!Array.isArray(hours) || hours.length === 0) return null;\n    const peak = hours.reduce(\n      (max, h) => h.occupancyPercent > max.occupancyPercent ? h : max,\n      {hour: null, occupancyPercent: -1}\n    );\n    return peak.hour !== null ? `${day} peak: ${peak.hour}h (${peak.occupancyPercent}%)` : null;\n  });\n\n  // Extract review tags with counts preserved\n  let reviewTagList = [];\n  if (typeof d.reviewTags === \"string\") {\n    reviewTagList = d.reviewTags\n      .split(\",\")\n      .map(t => t.trim())\n      .filter(Boolean);\n  } else if (Array.isArray(d.reviewTags)) {\n    reviewTagList = d.reviewTags.map(t => t.title || t).filter(Boolean);\n  }\n\n  const tags = [\n    ...(Array.isArray(d.reviewsTags) ? d.reviewsTags.map(t => t.title || t) : []),\n    ...reviewTagList,\n    ...(Array.isArray(d.categories) ? d.categories : []),\n    ...(Array.isArray(d.attributes) ? d.attributes : []),\n\n    // Live busyness\n    d.popularTimesLiveText || null,\n    d.popularTimesLivePercent ? `Live now: ${d.popularTimesLivePercent}%` : null,\n\n    // Daily peak summaries\n    ...dailyPeaks\n  ]\n    .filter(Boolean)\n    .map(t => String(t).trim())\n    .filter((v, i, a) => a.indexOf(v) === i); // dedupe\n\n  return {\n    json: {\n      title: d.title || null,\n      city: d.city || null,\n      state: d.state || null,\n      searchString: d.searchString || null,\n      tags: tags.length ? tags : null\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        608
+      ],
+      "id": "f312afd3-e782-4745-9d33-53ddc223dbe7",
+      "name": "Tags"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Flatten GMaps overview data\n// This ensures every provider becomes a row with clean fields for Sheets\n\nreturn items.map(item => {\n  const d = item.json;\n\n  return {\n    json: {\n      title: d.title || null,\n      category: d.categoryName || null,\n      rating: d.totalScore || null,\n      reviewsCount: d.reviewsCount || 0,\n      phone: d.phone || d.phoneUnformatted || null,\n      website: d.website || null,\n      street: d.street || null,\n      city: d.city || null,\n      state: d.state || null,\n      country: d.countryCode || null,\n      url: d.url || null,\n      searchString: d.searchString || null  // important for grouping later\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        656
+      ],
+      "id": "6fb8f005-693a-4541-b15e-03c758741e02",
+      "name": "Overview"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Flatten GMaps contact/overview data\n// Takes each provider object from Apify GMaps Scraper and outputs clean rows.\n\nreturn items.map(item => {\n  const d = item.json;\n\n  return {\n    json: {\n      title: d.title || null,\n      category: d.categoryName || null,\n      address: d.address || null,\n      neighborhood: d.neighborhood || null,\n      street: d.street || null,\n      city: d.city || null,\n      postalCode: d.postalCode || null,\n      state: d.state || null,\n      country: d.countryCode || null,\n\n      phone: d.phone || null,\n      phoneUnformatted: d.phoneUnformatted || null,\n      website: d.website || null,\n\n      // Join emails into one string for Sheets\n      emails: Array.isArray(d.emails) ? d.emails.join(\", \") : null,\n\n      lat: d.location?.lat || null,\n      lng: d.location?.lng || null,\n      plusCode: d.plusCode || null\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        848
+      ],
+      "id": "6e9a3758-a530-43d5-9780-b5698e101f1e",
+      "name": "Contact"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Flatten Social Media Data\n// Takes each business object with socials and outputs one row per business.\n\nreturn items.map(item => {\n  const d = item.json;\n\n  return {\n    json: {\n      title: d.title || null,\n\n      // Join arrays into comma-separated strings\n      instagrams: Array.isArray(d.instagrams) ? d.instagrams.join(\", \") : null,\n      facebooks: Array.isArray(d.facebooks) ? d.facebooks.join(\", \") : null,\n      linkedIns: Array.isArray(d.linkedIns) ? d.linkedIns.join(\", \") : null,\n      youtubes: Array.isArray(d.youtubes) ? d.youtubes.join(\", \") : null,\n      tiktoks: Array.isArray(d.tiktoks) ? d.tiktoks.join(\", \") : null,\n      twitters: Array.isArray(d.twitters) ? d.twitters.join(\", \") : null,\n      pinterests: Array.isArray(d.pinterests) ? d.pinterests.join(\", \") : null,\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        1040
+      ],
+      "id": "c83c6286-ff27-4a71-a140-147f0c85bee7",
+      "name": "Social"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Flatten Ratings & Reviews\n// Converts review objects into row-per-business for Google Sheets\n\nreturn items.map(item => {\n  const d = item.json;\n\n  // Flatten distribution\n  const dist = d.reviewsDistribution || {};\n\n  // Flatten tags: \"title (count)\"\n  const tags = Array.isArray(d.reviewsTags)\n    ? d.reviewsTags.map(t => `${t.title} (${t.count})`).join(\", \")\n    : null;\n\n  return {\n    json: {\n      title: d.title || null,\n      totalScore: d.totalScore ?? null,\n      reviewsCount: d.reviewsCount ?? null,\n\n      oneStar: dist.oneStar ?? 0,\n      twoStar: dist.twoStar ?? 0,\n      threeStar: dist.threeStar ?? 0,\n      fourStar: dist.fourStar ?? 0,\n      fiveStar: dist.fiveStar ?? 0,\n\n      reviewTags: tags || null\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        1216
+      ],
+      "id": "d1b1f73e-8be4-4147-9467-108c0305ebe9",
+      "name": "Rating"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Flatten reviews from all places + peopleAlsoSearch\nconst results = [];\n\nfor (const place of items) {\n  const p = place.json;\n\n  // Ensure reviews exist\n  if (Array.isArray(p.reviews) && p.reviews.length > 0) {\n    for (const r of p.reviews) {\n      results.push({\n        json: {\n          placeName: p.title || null,\n          categoryName: p.categoryName || null,\n          address: p.address || null,\n          phone: p.phone || null,\n          website: p.website || null,\n\n          // 🔑 People Also Search (flatten array into titles or JSON string)\n          peopleAlsoSearch: Array.isArray(p.peopleAlsoSearch)\n            ? p.peopleAlsoSearch.map(ps => ps.title).join(\", \")\n            : null,\n\n          // Review fields\n          reviewerId: r.reviewerId || null,\n          reviewerUrl: r.reviewerUrl || null,\n          reviewerName: r.name || null,\n          reviewerNumberOfReviews: r.reviewerNumberOfReviews || null,\n          isLocalGuide: r.isLocalGuide || null,\n          reviewerPhotoUrl: r.reviewerPhotoUrl || null,\n\n          stars: r.stars || null,\n          text: r.text || null,\n          textTranslated: r.textTranslated || null,\n          publishAt: r.publishAt || null,\n          publishedAtDate: r.publishedAtDate || null,\n          likesCount: r.likesCount || null,\n\n          reviewId: r.reviewId || null,\n          reviewUrl: r.reviewUrl || null,\n          reviewOrigin: r.reviewOrigin || null,\n          rating: r.rating || null,\n\n          responseFromOwnerDate: r.responseFromOwnerDate || null,\n          responseFromOwnerText: r.responseFromOwnerText || null,\n\n          reviewImageUrls: Array.isArray(r.reviewImageUrls) ? r.reviewImageUrls.join(\", \") : null,\n          reviewContext: r.reviewContext ? JSON.stringify(r.reviewContext) : null,\n          reviewDetailedRating: r.reviewDetailedRating ? JSON.stringify(r.reviewDetailedRating) : null,\n\n          visitedIn: r.visitedIn || null,\n          originalLanguage: r.originalLanguage || null,\n          translatedLanguage: r.translatedLanguage || null\n        }\n      });\n    }\n  }\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        1408
+      ],
+      "id": "63b37c6e-adbe-43a5-abc6-4244e8d0b621",
+      "name": "Review"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node: Flatten place info dynamically\n// Input: Array of place objects (title, city, state, leadsEnrichment, etc.)\n// Output: One row per place, ready for a sheet\n\nconst results = [];\n\nfor (const place of items) {\n  const p = place.json;\n\n  results.push({\n    json: {\n      placeName: p.title || null,\n      city: p.city || null,\n      state: p.state || null,\n      leadsEnrichment: p.leadsEnrichment || null\n    }\n  });\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        1584
+      ],
+      "id": "1fe7a634-09ba-4c48-b7f9-689a52943a0f",
+      "name": "Lead enrichment"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 7,
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1008,
+        -320
+      ],
+      "id": "bea5dca7-06f3-4780-803f-cf28f08748b1",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Extract Popular Times + Domain\n\nreturn items.map(item => {\n  const d = item.json;\n\n  // Extract domain from website or URL\n  let domain = null;\n  if (d.website) {\n    try {\n      domain = new URL(d.website).hostname;\n    } catch (e) {\n      domain = d.website;\n    }\n  } else if (d.url) {\n    try {\n      domain = new URL(d.url).hostname;\n    } catch (e) {\n      domain = d.url;\n    }\n  }\n\n  return {\n    json: {\n      title: d.title || null,\n      searchString: d.searchString || null,\n      popularTimesLiveText: d.popularTimesLiveText || null,\n      popularTimesLivePercent: d.popularTimesLivePercent || null,\n      popularTimesHistogram: d.popularTimesHistogram || null,\n      domain: domain\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        1792
+      ],
+      "id": "32abad2e-5129-497e-b050-76e3a8aae008",
+      "name": "popularTimesHistogram"
+    },
+    {
+      "parameters": {
+        "resource": "spreadsheet",
+        "title": "=Local market search {{$now}}",
+        "sheetsUi": {
+          "sheetValues": [
+            {
+              "title": "=Sheet 1 overview"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2336,
+        976
+      ],
+      "id": "8ab786c3-7804-4db9-aef2-c66185b99051",
+      "name": "Create spreadsheet",
+      "executeOnce": false,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        448,
+        1232
+      ],
+      "id": "68ec03cd-739f-48fe-9d5a-c979366f4f70",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "868c8798-a84c-40bb-b001-752ae5997be8",
+              "name": "ID",
+              "value": "={{ $json.spreadsheetId }}",
+              "type": "string"
+            },
+            {
+              "id": "f60d3486-6250-4d3c-bf8f-e4a6ac0eb067",
+              "name": "URL",
+              "value": "={{ $json.spreadsheetUrl }}",
+              "type": "string"
+            },
+            {
+              "id": "f232e541-e8c7-4edc-9da2-650e3062a684",
+              "name": "title",
+              "value": "={{ $json.properties.title }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2000,
+        960
+      ],
+      "id": "a86a7280-ed78-4145-96fa-72d4fc2e5fa5",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.URL }}",
+          "mode": "url"
+        },
+        "title": "=Sheet 2 contact",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        336,
+        1424
+      ],
+      "id": "af8d6546-12f1-49e1-9222-cd0128bb679c",
+      "name": "Create sheet",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        176,
+        1424
+      ],
+      "id": "6be2a327-114b-43b9-89c5-269321fcd4c6",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.URL }}",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet 1 overview",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        704,
+        1216
+      ],
+      "id": "f9c5b924-9fd9-48dc-8a0e-97e77aabd3ab",
+      "name": "Append or update row in sheet8",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.URL }}",
+          "mode": "url"
+        },
+        "title": "=Sheet 3 social",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        144,
+        1840
+      ],
+      "id": "0f62fd81-204a-47a8-a9ea-b18f1f867192",
+      "name": "Create sheet1",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -16,
+        1840
+      ],
+      "id": "52058604-c7f9-4b0a-b22b-53b90f08b645",
+      "name": "Merge3"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.URL }}",
+          "mode": "url"
+        },
+        "title": "=Sheet 4 rating",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        128,
+        2016
+      ],
+      "id": "3009bab2-68f7-485e-8df3-d8dc7dc82e67",
+      "name": "Create sheet2",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -32,
+        2016
+      ],
+      "id": "ea408e56-025f-400d-a9f0-46adf86d1380",
+      "name": "Merge4"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        656,
+        1504
+      ],
+      "id": "b68a98df-4d75-4e43-a4c4-3cde71f7e2a1",
+      "name": "Merge5"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.sheetId }}",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "spreadsheetId",
+              "displayName": "spreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetId",
+              "displayName": "sheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "index",
+              "displayName": "index",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetType",
+              "displayName": "sheetType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gridProperties",
+              "displayName": "gridProperties",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "neighborhood",
+              "displayName": "neighborhood",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "street",
+              "displayName": "street",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "postalCode",
+              "displayName": "postalCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phoneUnformatted",
+              "displayName": "phoneUnformatted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "emails",
+              "displayName": "emails",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lat",
+              "displayName": "lat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lng",
+              "displayName": "lng",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "plusCode",
+              "displayName": "plusCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        864,
+        1488
+      ],
+      "id": "b288e809-39af-40cf-95d0-0de216974ae4",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        464,
+        1840
+      ],
+      "id": "4969ffb9-f2c5-4e60-a816-413949f1b782",
+      "name": "Merge6"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.sheetId }}",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "spreadsheetId",
+              "displayName": "spreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetId",
+              "displayName": "sheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "index",
+              "displayName": "index",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetType",
+              "displayName": "sheetType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gridProperties",
+              "displayName": "gridProperties",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "neighborhood",
+              "displayName": "neighborhood",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "street",
+              "displayName": "street",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "postalCode",
+              "displayName": "postalCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phoneUnformatted",
+              "displayName": "phoneUnformatted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "emails",
+              "displayName": "emails",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lat",
+              "displayName": "lat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lng",
+              "displayName": "lng",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "plusCode",
+              "displayName": "plusCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        704,
+        1856
+      ],
+      "id": "1d0e396b-deec-406e-855d-ee593b818057",
+      "name": "Append or update row in sheet9",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        416,
+        2080
+      ],
+      "id": "a4383e02-5258-43f8-be50-b7fb4052b1de",
+      "name": "Merge7"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.sheetId }}",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "spreadsheetId",
+              "displayName": "spreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetId",
+              "displayName": "sheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "index",
+              "displayName": "index",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetType",
+              "displayName": "sheetType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gridProperties",
+              "displayName": "gridProperties",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "neighborhood",
+              "displayName": "neighborhood",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "street",
+              "displayName": "street",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "postalCode",
+              "displayName": "postalCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phoneUnformatted",
+              "displayName": "phoneUnformatted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "emails",
+              "displayName": "emails",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lat",
+              "displayName": "lat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lng",
+              "displayName": "lng",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "plusCode",
+              "displayName": "plusCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        640,
+        2096
+      ],
+      "id": "4330634a-a291-498f-97f4-da8c2c3567e8",
+      "name": "Append or update row in sheet10",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.URL }}",
+          "mode": "url"
+        },
+        "title": "=Sheet 5 review",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        128,
+        2256
+      ],
+      "id": "0f7ee07b-49cb-4a23-873d-10e1ee73044e",
+      "name": "Create sheet3",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -48,
+        2272
+      ],
+      "id": "9ffecb95-3dd7-4001-9ce3-60b0325fde3d",
+      "name": "Merge8"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        400,
+        2320
+      ],
+      "id": "72f9eb97-9db2-41b5-a430-07ef728b0a7b",
+      "name": "Merge9"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.sheetId }}",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "spreadsheetId",
+              "displayName": "spreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetId",
+              "displayName": "sheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "index",
+              "displayName": "index",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetType",
+              "displayName": "sheetType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gridProperties",
+              "displayName": "gridProperties",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "neighborhood",
+              "displayName": "neighborhood",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "street",
+              "displayName": "street",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "postalCode",
+              "displayName": "postalCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phoneUnformatted",
+              "displayName": "phoneUnformatted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "emails",
+              "displayName": "emails",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lat",
+              "displayName": "lat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lng",
+              "displayName": "lng",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "plusCode",
+              "displayName": "plusCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        640,
+        2336
+      ],
+      "id": "6edf73d6-f9fb-4953-a937-0393e375242e",
+      "name": "Append or update row in sheet11",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.URL }}",
+          "mode": "url"
+        },
+        "title": "=Sheet 6 lead enrichment",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        80,
+        2480
+      ],
+      "id": "33046207-0cde-400a-89b4-80ff68a080c3",
+      "name": "Create sheet4",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -128,
+        2416
+      ],
+      "id": "6002657a-2030-45a3-b916-1b698180afee",
+      "name": "Merge10"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        352,
+        2544
+      ],
+      "id": "5b7474ae-da60-4e5d-917f-5b9bd1134be1",
+      "name": "Merge11"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.sheetId }}",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "spreadsheetId",
+              "displayName": "spreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetId",
+              "displayName": "sheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "index",
+              "displayName": "index",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetType",
+              "displayName": "sheetType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gridProperties",
+              "displayName": "gridProperties",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "neighborhood",
+              "displayName": "neighborhood",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "street",
+              "displayName": "street",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "postalCode",
+              "displayName": "postalCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phoneUnformatted",
+              "displayName": "phoneUnformatted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "emails",
+              "displayName": "emails",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lat",
+              "displayName": "lat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lng",
+              "displayName": "lng",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "plusCode",
+              "displayName": "plusCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        592,
+        2560
+      ],
+      "id": "9a27efc6-4d56-4675-a7d1-e3a28e201bb4",
+      "name": "Append or update row in sheet12",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.URL }}",
+          "mode": "url"
+        },
+        "title": "=Sheet 7 histogram",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        64,
+        2768
+      ],
+      "id": "d6989618-257b-4586-ad62-dbbffbbfff34",
+      "name": "Create sheet5",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -144,
+        2704
+      ],
+      "id": "336da7bc-0823-4e29-b3ec-6ce194c4bd6e",
+      "name": "Merge12"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        336,
+        2832
+      ],
+      "id": "16353954-c787-4e6c-a064-33b91a63120d",
+      "name": "Merge13"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.sheetId }}",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "spreadsheetId",
+              "displayName": "spreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetId",
+              "displayName": "sheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "index",
+              "displayName": "index",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetType",
+              "displayName": "sheetType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gridProperties",
+              "displayName": "gridProperties",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "neighborhood",
+              "displayName": "neighborhood",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "street",
+              "displayName": "street",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "postalCode",
+              "displayName": "postalCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phoneUnformatted",
+              "displayName": "phoneUnformatted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "emails",
+              "displayName": "emails",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lat",
+              "displayName": "lat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lng",
+              "displayName": "lng",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "plusCode",
+              "displayName": "plusCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        576,
+        2848
+      ],
+      "id": "75460124-b2e1-4110-865e-a6864bf2ac88",
+      "name": "Append or update row in sheet13",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Each business entry includes fields such as title, category, reviewsCount, avgRating, ratingVariance, website, phone, address, and other metadata.\n\nData point for you to go through\n\nSearch string/ keyword - {{ $json.keyword }}\nBusiness with avg rating and variance rating {{ $json.businesses }}\nTop 10 and nbottom 10 liked by customers {{ $json.providers }} \nTags for mentioned a lot in reviews - {{ $json.tags }}\nReviews  - {{ $json.texts }}\nCategories - {{ $json.categories }}\nPeopleAlsoAsk - {{ $json.peopleAlsoSearch }}\n\n\nAnalyze the dataset and provide insights on niches and market opportunities for the given search string. Specifically:\n\nMost Common Niches (High Saturation):\n\nIdentify categories or business types that are most frequently mentioned in the dataset.\n\nHighlight which types dominate the local results and are potentially oversaturated.\n\nHigh-Potential Missing Niches (Gaps):\n\nIdentify niches, categories, or service types that are not present (or very underrepresented) in the dataset but are relevant to the search string.\n\nThink of “low-competition, high-demand” opportunities.\n\nUnique / Differentiated Niches:\n\nSpot business models or service categories in the dataset that stand out as unusual, rare, or differentiated.\n\nExplain why they could represent a unique opportunity in this market.\n\nOutput Format:\nProvide your response in three clear sections:\n\na. Most Common Niches\n\nb. Missing High-Potential Niches\n\nc. Unique or Differentiated Niches\n\nSupport your findings with references to counts, relative frequency, or notable business examples from the dataset where possible.\n\nStrict output format in json has to be only this\n\n\n{\n  \"a_most_common_niches\": [\n    {\n      \"niche\": \"string\",\n      \"count\": \"number\",\n      \"example_businesses\": [\"string\", \"string\"]\n    }\n  ],\n  \"b_missing_high_potential_niches\": [\n    {\n      \"niche\": \"string\",\n      \"rationale\": \"string\"\n    }\n  ],\n  \"c_unique_or_differentiated_niches\": [\n    {\n      \"niche\": \"string\",\n      \"example_business\": \"string\",\n      \"rationale\": \"string\"\n    }\n  ]\n}\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a market research analyst specializing in local business ecosystems. You have access to a dataset of businesses returned from Google Maps for a specific keyword (search string). "
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        3392,
+        -432
+      ],
+      "id": "5c05d80e-29ab-4c42-b5a6-09f3de7755a7",
+      "name": "Niche identifyer"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        3328,
+        -48
+      ],
+      "id": "978bbd62-bdc2-45e4-bfe4-e5772d305276",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2144,
+        688
+      ],
+      "id": "2a241d4e-ee61-4e66-963b-98e6211f5f70",
+      "name": "Merge15"
+    },
+    {
+      "parameters": {
+        "jsCode": "const windowDays = 100; // configurable window\nconst now = new Date();\nconst cutoff = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000);\n\nconst groups = {};\n\nfor (const item of items) {\n  const d = item.json;\n\n  if (!groups[d.title]) {\n    groups[d.title] = {\n      title: d.title,\n      searchString: d.searchString,\n      totalReviews: 0,\n      recentReviews: 0,\n    };\n  }\n\n  // Check if review has publishedAtDate\n  if (d.publishedAtDate) {\n    const reviewDate = new Date(d.publishedAtDate);\n    if (reviewDate >= cutoff) {\n      groups[d.title].recentReviews++;\n    }\n  }\n\n  groups[d.title].totalReviews = d.reviewsCount || 0;\n}\n\n// Convert groups to array with RV\nreturn Object.values(groups).map(g => {\n  const rv = g.recentReviews > 0 \n    ? (g.recentReviews / windowDays) * 30\n    : 0;\n\n  return {\n    json: {\n      title: g.title,\n      searchString: g.searchString,\n      reviewsCount: g.totalReviews,\n      recentReviews: g.recentReviews,\n      RV: rv.toFixed(2),\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        -464
+      ],
+      "id": "73441329-46db-4f5f-bb8a-6431d595c619",
+      "name": "Review velocity"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1936,
+        -368
+      ],
+      "id": "aa7b9b6f-eb36-4826-bac5-6eada6d8839d",
+      "name": "Merge20"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: calculate average rating (AR) and variance (VAR)\n// Needs: item.json.oneStar, twoStar, threeStar, fourStar, fiveStar, reviewsCount\n\nconst results = [];\n\nfor (const item of items) {\n  const d = item.json;\n\n  const counts = {\n    1: d.oneStar || 0,\n    2: d.twoStar || 0,\n    3: d.threeStar || 0,\n    4: d.fourStar || 0,\n    5: d.fiveStar || 0,\n  };\n\n  const total = Object.values(counts).reduce((a,b) => a+b, 0);\n  if (total === 0) {\n    results.push({ json: { ...d, avgRating: null, ratingVariance: null }});\n    continue;\n  }\n\n  // Average rating\n  const sum = Object.entries(counts).reduce((a,[star,count]) => a + (parseInt(star) * count), 0);\n  const mean = sum / total;\n\n  // Variance\n  const sqDiffSum = Object.entries(counts).reduce((a,[star,count]) => {\n    const diff = parseInt(star) - mean;\n    return a + count * diff * diff;\n  }, 0);\n  const variance = sqDiffSum / total;\n\n  results.push({\n    json: {\n      ...d,\n      avgRating: mean,\n      ratingVariance: variance,\n      reviewsCount: total\n    }\n  });\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        192
+      ],
+      "id": "1b1f1558-9cde-4ea3-8ec6-05552c91fde4",
+      "name": "Average rating and rating variance1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Calculate INC at provider (title) level and rank\n// Needs input with fields: title, avgRating, ratingVariance, reviewsCount, website, phone, street, city, state, country, url, address, emails\n\nconst results = [];\n\n// Step 1: Compute INC score per provider\nfor (const item of items) {\n  const d = item.json;\n\n  const rating = d.avgRating ?? null;\n  const variance = d.ratingVariance ?? null;\n  const count = d.reviewsCount ?? 0;\n\n  // Binary INC flag: entrenched incumbents if rating high + variance low + review base strong\n  let INC = 0;\n  if (rating !== null && variance !== null) {\n    if (rating >= 4.6 && variance < 0.15 && count > 50) {\n      INC = 1;\n    }\n  }\n\n  results.push({\n    title: d.title || \"unknown\",\n    avgRating: rating,\n    ratingVariance: variance,\n    reviewsCount: count,\n    INC,\n    website: d.website || null,\n    phone: d.phone || null,\n    street: d.street || null,\n    city: d.city || null,\n    state: d.state || null,\n    country: d.country || null,\n    url: d.url || null,\n    address: d.address || null,\n    emails: d.emails || []\n  });\n}\n\n// Step 2: Sort by INC score (descending for top, ascending for bottom)\n// To make top/bottom more meaningful, sort primarily by INC, then by reviewsCount\nconst sorted = results.sort((a, b) => {\n  if (b.INC !== a.INC) return b.INC - a.INC;\n  return (b.reviewsCount || 0) - (a.reviewsCount || 0);\n});\n\n// Step 3: Take top 10 and bottom 10\nconst top10 = sorted.slice(0, 10);\nconst bottom10 = sorted.slice(-10);\n\n// Step 4: Return both lists\nreturn [\n  { json: { ranking: \"Top 10 incumbents\", providers: top10 } },\n  { json: { ranking: \"Bottom 10 incumbents\", providers: bottom10 } }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        80
+      ],
+      "id": "e5efa1ca-411c-4306-a910-1956eb6b7014",
+      "name": "Top and bottom 10 players (INC)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: group businesses per searchString with AR, VAR, and reviewsCount\n\nconst grouped = {};\n\nfor (const item of items) {\n  const d = item.json;\n  const key = d.searchString || \"unknown\";\n\n  if (!grouped[key]) {\n    grouped[key] = {\n      searchString: key,\n      businesses: []\n    };\n  }\n\n  grouped[key].businesses.push({\n    title: d.title,\n    category: d.category || null,\n    reviewsCount: d.reviewsCount,\n    avgRating: d.avgRating,\n    ratingVariance: d.ratingVariance,\n    website: d.website || null,\n    phone: d.phone || null,\n    street: d.street || null,\n    city: d.city || null,\n    state: d.state || null,\n    country: d.country || null,\n    url: d.url || null,\n    address: d.address || null,\n    emails: d.emails || []\n  });\n}\n\n// Return grouped array\nreturn Object.values(grouped).map(g => ({ json: g }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        400
+      ],
+      "id": "cf7234db-1dfd-4f55-b769-39b2863534d4",
+      "name": "Group AR and VR"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Calculate INC per business (title level)\n// Input needs: title, avgRating, ratingVariance, reviewsCount (+ optional metadata)\n\nreturn items.map(item => {\n  const d = item.json;\n\n  const rating = d.avgRating ?? null;\n  const variance = d.ratingVariance ?? null;\n  const count = d.reviewsCount ?? 0;\n\n  // Rule: a business is \"incumbent\" if it has\n  // high rating (>= 4.6), low variance (< 0.15), and strong review base (> 50)\n  let INC = 0;\n  if (rating !== null && variance !== null) {\n    if (rating >= 4.6 && variance < 0.15 && count > 50) {\n      INC = 1;\n    }\n  }\n\n  return {\n    json: {\n      title: d.title || \"unknown\",\n      category: d.category || null,\n      avgRating: rating,\n      ratingVariance: variance,\n      reviewsCount: count,\n      INC,\n      // keep metadata\n      website: d.website || null,\n      phone: d.phone || null,\n      street: d.street || null,\n      city: d.city || null,\n      state: d.state || null,\n      country: d.country || null,\n      url: d.url || null,\n      address: d.address || null,\n      emails: d.emails || []\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        240
+      ],
+      "id": "991eee84-a5be-4cec-a078-c48a4990372c",
+      "name": "All business INC1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const grouped = {};\n\nfor (const item of items) {\n  const d = item.json;\n  const key = d.searchString || \"unknown\";\n\n  if (!grouped[key]) {\n    grouped[key] = {\n      searchString: key,\n      businesses: []\n    };\n  }\n\n  grouped[key].businesses.push({\n    title: d.title,\n    category: d.category || null,   // if you have category from previous node\n    reviewsCount: d.reviewsCount,\n    recentReviews: d.recentReviews,\n    RV: d.RV\n  });\n}\n\n// Return as array of searchStrings with businesses array\nreturn Object.values(grouped).map(g => ({ json: g }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        -592
+      ],
+      "id": "f6aec479-1b92-4576-bdde-6e2f9f73bc40",
+      "name": "Grouped RV for AI"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Aggregate Review Velocity (RV) per search string\n\nconst results = [];\n\nfor (const item of items) {\n  const d = item.json;\n  const key = d.searchString || \"unknown\";\n\n  let RVs = [];\n\n  if (Array.isArray(d.businesses)) {\n    for (const b of d.businesses) {\n      if (b && b.RV !== null && b.RV !== undefined) {\n        RVs.push(Number(b.RV));  // make sure it's numeric\n      }\n    }\n  }\n\n  const RV = RVs.length > 0 \n    ? RVs.reduce((a, b) => a + b, 0) / RVs.length \n    : null;\n\n  results.push({\n    json: {\n      cell_id: results.length + 1,\n      keyword: key,\n      RV\n    }\n  });\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        -592
+      ],
+      "id": "c0c50050-bd9c-42ba-89a9-d22036d9190a",
+      "name": "AVG RV per kw"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Provider Density\n// Calculates how many providers exist per searchString\n\nconst groups = {};\n\nfor (const item of items) {\n  const d = item.json;\n  const key = d.searchString || \"unknown\";\n\n  if (!groups[key]) {\n    groups[key] = { \n      searchString: key,\n      providers: 0,\n      titles: [] \n    };\n  }\n\n  groups[key].providers += 1;\n  groups[key].titles.push(d.title || \"Unnamed\");\n}\n\n// Return flattened results\nreturn Object.values(groups).map(group => ({\n  json: group\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        -80
+      ],
+      "id": "f4dab455-c0ce-4b86-bd24-036bffefdef5",
+      "name": "GROUPED Provider density"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Provider Density (PD) per search string\n\nconst results = [];\n\nfor (const item of items) {\n  const d = item.json;\n  const key = d.searchString || \"unknown\";\n\n  // PD is just the count of providers\n  const PD = d.providers || (Array.isArray(d.titles) ? d.titles.length : 0);\n\n  results.push({\n    json: {\n      cell_id: results.length + 1,\n      keyword: key,\n      PD\n    }\n  });\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        -320
+      ],
+      "id": "af0c25d3-fd05-4a07-b6f2-f574dc9a9b5f",
+      "name": "PD "
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: INC rollup per searchString\nconst groups = {};\n\nfor (const item of items) {\n  const d = item.json;\n  const key = d.searchString || \"unknown\";\n\n  if (!groups[key]) {\n    groups[key] = { searchString: key, incumbents: 0, total: 0 };\n  }\n\n  // count total providers\n  groups[key].total++;\n\n  // count incumbents\n  if (d.avgRating >= 4.6 && d.ratingVariance < 0.15 && d.reviewsCount > 50) {\n    groups[key].incumbents++;\n  }\n}\n\n// build % incumbents (INC)\nreturn Object.values(groups).map(g => {\n  const INC = g.total > 0 ? g.incumbents / g.total : 0;\n  return {\n    json: {\n      searchString: g.searchString,\n      totalProviders: g.total,\n      incumbents: g.incumbents,\n      INC: INC.toFixed(3) // 0–1 score\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        -176
+      ],
+      "id": "96acbe9e-2b7a-41ce-bc7c-a400fdcd9064",
+      "name": "INC per kw"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Aggregate AR and VAR per searchString (from businesses[])\n\nconst groups = {};\n\nfor (const item of items) {\n  const d = item.json;\n  const key = d.searchString || \"unknown\";\n\n  if (!groups[key]) {\n    groups[key] = {\n      searchString: key,\n      totalAR: 0,\n      countAR: 0,\n      totalVAR: 0,\n      countVAR: 0,\n    };\n  }\n\n  // Loop through businesses[]\n  if (Array.isArray(d.businesses)) {\n    for (const b of d.businesses) {\n      if (b.avgRating !== undefined && b.avgRating !== null) {\n        groups[key].totalAR += b.avgRating;\n        groups[key].countAR++;\n      }\n      if (b.ratingVariance !== undefined && b.ratingVariance !== null) {\n        groups[key].totalVAR += b.ratingVariance;\n        groups[key].countVAR++;\n      }\n    }\n  }\n}\n\n// Convert to array with averages\nreturn Object.values(groups).map((g, i) => {\n  const AR = g.countAR ? g.totalAR / g.countAR : null;\n  const VAR = g.countVAR ? g.totalVAR / g.countVAR : null;\n\n  return {\n    json: {\n      cell_id: i + 1,\n      keyword: g.searchString,\n      AR,\n      VAR,\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2272,
+        400
+      ],
+      "id": "709e4ced-f79b-4713-9512-835d225f005d",
+      "name": "AVG AR AND VAR "
+    },
+    {
+      "parameters": {
+        "jsCode": "// Group tags/text/categories/peopleAlsoSearch by keyword or searchString\nconst grouped = {};\n\n$input.all().forEach(item => {\n  const d = item.json;\n  const kw = d.keyword || d.searchString || \"unknown\";\n\n  if (!grouped[kw]) {\n    grouped[kw] = {\n      tags: [],\n      texts: [],\n      categories: [],\n      pas: []\n    };\n  }\n\n  // Tags\n  if (d.tags) {\n    grouped[kw].tags.push(...(Array.isArray(d.tags) ? d.tags : [d.tags]));\n  }\n\n  // Review texts\n  if (d.text) {\n    grouped[kw].texts.push(d.text);\n  }\n\n  // Categories (use categoryName if available)\n  if (d.categoryName) {\n    grouped[kw].categories.push(d.categoryName);\n  }\n\n  // ✅ People Also Search\n  if (Array.isArray(d.peopleAlsoSearch)) {\n    d.peopleAlsoSearch.forEach(p => {\n      if (p.title) {\n        grouped[kw].pas.push(p.title);\n      } else if (typeof p === \"string\") {\n        grouped[kw].pas.push(p);\n      }\n    });\n  } else if (typeof d.peopleAlsoSearch === \"string\" && d.peopleAlsoSearch.trim()) {\n    d.peopleAlsoSearch.split(\",\").forEach(str => {\n      grouped[kw].pas.push(str.trim());\n    });\n  }\n});\n\n// Build output\nreturn Object.keys(grouped).map(kw => {\n  const g = grouped[kw];\n  return {\n    json: {\n      keyword: kw,\n      tags: [...new Set(g.tags)],              // deduplicate tags\n      texts: g.texts.slice(0, 50),             // cap at 50 review texts\n      categories: [...new Set(g.categories)],  // deduplicate categories\n      peopleAlsoSearch: [...new Set(g.pas)]    // deduplicate PAS\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        688
+      ],
+      "id": "3fc1dffa-128c-4621-b49d-5219538d8f40",
+      "name": "GROUPED TAGS AND REVIEW FOR AI"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 4,
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2800,
+        -448
+      ],
+      "id": "9412b5e0-3f1f-4b2e-b9a3-103dc21924b7",
+      "name": "Merge14"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 5,
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2912,
+        -112
+      ],
+      "id": "106f9a3e-fefc-41bf-833f-ec0172ea944a",
+      "name": "Merge18"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"a_most_common_niches\": [\n    {\n      \"niche\": \"string\",\n      \"count\": \"number\",\n      \"example_businesses\": [\"string\", \"string\"]\n    }\n  ],\n  \"b_missing_high_potential_niches\": [\n    {\n      \"niche\": \"string\",\n      \"rationale\": \"string\"\n    }\n  ],\n  \"c_unique_or_differentiated_niches\": [\n    {\n      \"niche\": \"string\",\n      \"example_business\": \"string\",\n      \"rationale\": \"string\"\n    }\n  ]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        3568,
+        -224
+      ],
+      "id": "6917f66e-e72d-49e8-93c6-f2d244a836e3",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM",
+          "mode": "list",
+          "cachedResultName": "Final niche sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Most common niches": "={{ $json.most_common_niches }}",
+            "Missing high potential niches": "={{ $json.missing_high_potential_niches }}",
+            "Unique or diff niches": "={{ $json.unique_or_differentiated_niches }}",
+            "Keyword": "={{ $json.searchString }}",
+            "Avg Review velocity": "={{ $json.RV }}",
+            "Provider density": "={{ $json.PD }}",
+            "Average rating": "={{ $json.AR }}",
+            "Variance of rating": "={{ $json.VAR }}",
+            "Incumbancy": "={{ $json.INC }}"
+          },
+          "matchingColumns": [
+            "Keyword"
+          ],
+          "schema": [
+            {
+              "id": "Keyword",
+              "displayName": "Keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Most common niches",
+              "displayName": "Most common niches",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Missing high potential niches",
+              "displayName": "Missing high potential niches",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Unique or diff niches",
+              "displayName": "Unique or diff niches",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Avg Review velocity",
+              "displayName": "Avg Review velocity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Provider density",
+              "displayName": "Provider density",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Average rating",
+              "displayName": "Average rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Variance of rating",
+              "displayName": "Variance of rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Incumbancy",
+              "displayName": "Incumbancy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4416,
+        -576
+      ],
+      "id": "7487d95b-23ac-42ba-bc42-2dabfd88322b",
+      "name": "Append or update row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        4144,
+        -576
+      ],
+      "id": "adb87026-409a-42c5-a6f3-98b5d2868915",
+      "name": "Merge16"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Flatten AI output arrays into strings for Sheets\nreturn items.map((item, i) => {\n  const d = item.json || {};\n\n  // Utility: flatten an array of objects to readable strings\n  function flattenArray(arr, fields) {\n    if (!Array.isArray(arr)) return \"\";\n    return arr.map(obj => {\n      if (typeof obj === \"string\") return obj;\n      if (typeof obj === \"object\") {\n        // Pick only some fields to concatenate\n        return fields.map(f => obj[f] || \"\").filter(Boolean).join(\" | \");\n      }\n      return String(obj);\n    }).join(\" ; \"); // separate entries with semicolon\n  }\n\n  const output = d.output || {};\n\n  return {\n    json: {\n      keyword: d.keyword || \"unknown\",\n      most_common_niches: flattenArray(output.a_most_common_niches, [\"niche\", \"count\"]),\n      missing_high_potential_niches: flattenArray(output.b_missing_high_potential_niches, [\"niche\", \"rationale\"]),\n      unique_or_differentiated_niches: flattenArray(output.c_unique_or_differentiated_niches, [\"niche\", \"example_business\", \"rationale\"]),\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3888,
+        -304
+      ],
+      "id": "18fc166c-bd75-446c-b8b6-1f7b175558d2",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        3296,
+        704
+      ],
+      "id": "dc11d773-2b56-4d86-9805-8ca18fe189a7",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"volume\": {\n    \"number\": \"integer or float\",\n    \"answer\": \"yes/no\",\n    \"rationale\": \"string\"\n  },\n  \"underserved\": {\n    \"answer\": \"yes/no\",\n    \"what_is_underserved\": \"string\",\n    \"rationale\": \"string\"\n  },\n  \"end_customers\": {\n    \"who\": \"string\",\n    \"rationale\": \"string\"\n  },\n  \"arbitrage_newsletter\": {\n    \"answer\": \"yes/no\",\n    \"what_arbitrage\": \"string\",\n    \"rationale\": \"string\"\n  },\n  \"high_ticket\": {\n    \"what_is_high_ticket\": \"string\",\n    \"answer\": \"yes/no\",\n    \"rationale\": \"string\"\n  },\n  \"summary\": \"string\"\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        3600,
+        704
+      ],
+      "id": "3efb7fdf-f595-4447-a9f1-76363877bf57",
+      "name": "Structured Output Parser1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        3520,
+        1248
+      ],
+      "id": "a39a2e90-a950-45ea-9294-84f7d17aa79e",
+      "name": "OpenAI Chat Model2",
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"volume_visibility\": {\n    \"summary\": \"string\",\n    \"examples\": [\"string\"]\n  },\n  \"strengths\": {\n    \"summary\": \"string\",\n    \"examples\": [\"string\"]\n  },\n  \"weaknesses\": {\n    \"summary\": \"string\",\n    \"examples\": [\"string\"]\n  },\n  \"opportunities\": {\n    \"summary\": \"string\",\n    \"examples\": [\"string\"]\n  },\n  \"top_businesses_to_watch\": [\n    { \"business\": \"string\", \"reason\": \"string\" }\n  ],\n  \"top_but_underperforming\": [\n    { \"business\": \"string\", \"reason\": \"string\" }\n  ],\n  \"interesting_insights\": [\"string\"],\n  \"summary\": \"string\"\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        3712,
+        1248
+      ],
+      "id": "e3cf47b1-8e16-438d-ba70-293e7ece31c2",
+      "name": "Structured Output Parser2"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2160,
+        1104
+      ],
+      "id": "ee97b7e2-6a06-4942-ab84-0db1b2419ea2",
+      "name": "Merge19"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Group into single businesses array\n// Output: one item with businesses[ {title, socials, website, histogram} ]\n\nconst grouped = {};\n\n$input.all().forEach(item => {\n  const d = item.json;\n  const title = d.title || \"unknown\";\n\n  if (!grouped[title]) {\n    grouped[title] = {\n      title,\n      website: d.website || null,\n      domain: d.domain || null,\n      socials: {\n        instagrams: [],\n        facebooks: [],\n        linkedins: [],\n        twitters: [],\n        youtubes: [],\n        tiktoks: [],\n        pinterests: []\n      },\n      popularTimesHistogram: []\n    };\n  }\n\n  // Collect socials\n  const socialKeys = [\"instagrams\",\"facebooks\",\"linkedins\",\"twitters\",\"youtubes\",\"tiktoks\",\"pinterests\"];\n  socialKeys.forEach(key => {\n    if (Array.isArray(d[key])) {\n      grouped[title].socials[key].push(...d[key]);\n    } else if (d[key]) {\n      grouped[title].socials[key].push(d[key]);\n    }\n  });\n\n  // Collect histogram\n  if (Array.isArray(d.popularTimesHistogram)) {\n    grouped[title].popularTimesHistogram.push(...d.popularTimesHistogram);\n  } else if (d.popularTimesHistogram) {\n    grouped[title].popularTimesHistogram.push(d.popularTimesHistogram);\n  }\n});\n\n// ✅ Return single array\nreturn [\n  {\n    json: {\n      businesses: Object.values(grouped).map(biz => ({\n        title: biz.title,\n        website: biz.website,\n        domain: biz.domain,\n        socials: {\n          instagrams: [...new Set(biz.socials.instagrams)],\n          facebooks: [...new Set(biz.socials.facebooks)],\n          linkedins: [...new Set(biz.socials.linkedins)],\n          twitters: [...new Set(biz.socials.twitters)],\n          youtubes: [...new Set(biz.socials.youtubes)],\n          tiktoks: [...new Set(biz.socials.tiktoks)],\n          pinterests: [...new Set(biz.socials.pinterests)]\n        },\n        popularTimesHistogram: biz.popularTimesHistogram\n      }))\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        1104
+      ],
+      "id": "66a12f8c-0174-4f76-a873-cc7b64dbda20",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3104,
+        1008
+      ],
+      "id": "6be880e0-1617-4c5c-87c5-9f27e4a9ccfe",
+      "name": "Merge17"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Here is the Google Maps business data with fields like:  \ntitle, category, reviewsCount, avgRating, ratingVariance, tags, RV (review velocity), INC (incumbency).  \n\nSearch string/ keyword - {{ $json.keyword }}\nBusiness with avg rating and variance rating {{ $json.businesses }}\nTop 10 and nbottom 10 liked by customers {{ $json.providers }} \nTags for mentioned a lot in reviews - {{ $json.tags }}\nReviews  - {{ $json.texts }}\nCategories - {{ $json.categories }}\nPeopleAlsoAsk - {{ $json.peopleAlsoSearch }}\n\nYou can find review count etc in the json i have shared \n\nBased on this data, analyze the niche and return insights in the required JSON format.  \n\n\nMake sure the output also includes \n\n1. Volume (give me the count based on no of reviews and review count)\n2. Underserved (Give me percentage or dollar value based on the variables I shared)\n3. End customers (Add more persona and their spending nature based on reviews text)\n4. Arbitrage (is there anything else other than newsletter that can be profitable and no need of investement)\n4. High ticket (give me dollar value what is the minimum to maximum the businesses service are offered or customers pay from reviews and business details)\n\nMake sure you collect data from our scraped info i listed above\n\nStrict output format in json has to be only this\n\n{\n  \"volume\": {\n    \"number\": \"integer or float\",\n    \"answer\": \"yes/no\",\n    \"rationale\": \"string\"\n  },\n  \"underserved\": {\n    \"answer\": \"yes/no\",\n    \"what_is_underserved\": \"string\",\n    \"rationale\": \"string\"\n  },\n  \"end_customers\": {\n    \"who\": \"string\",\n    \"rationale\": \"string\"\n  },\n  \"arbitrage_newsletter\": {\n    \"answer\": \"yes/no\",\n    \"what_arbitrage\": \"string\",\n    \"rationale\": \"string\"\n  },\n  \"high_ticket\": {\n    \"what_is_high_ticket\": \"string\",\n    \"answer\": \"yes/no\",\n    \"rationale\": \"string\"\n  },\n  \"summary\": \"string\"\n}\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are an expert local market analyst helping entrepreneurs identify high-potential niches for building a local newsletter business.  \nYou analyze Google Maps business data (business name, category, reviews, tags, ratings, review velocity, average rating, variance, incumbency).  \n\nYour goal is to:\n1. Evaluate if there’s enough **volume** (businesses + customers- (also give me the count based on no of reviews and review count)\n2. Identify if the market is **underserved** (gaps, poor incumbents, weak ratings-  (also Give me percentage or dollar value based on the variables I shared)\n3. Define the **end customers** for the businesses (also Add more persona and their spending nature based on reviews text)\n4. Find **arbitrage opportunities** to build a newsletter targeting end customers, and sell leads/ads to businesses.(first say yes if there is a arbitrage and why then look for something where anything else other than newsletter that can be profitable and no need of investement)\n5. Assess if the niche is **high-ticket** (also give me dollar value what is the minimum to maximum the businesses service are offered or customers pay from reviews and business details) \n\nAvoid saying from reviews rather say based on the research and analysis \n\nAlways return your answer in strict JSON with the exact structure provided below and make sure there are sub pointers within \n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        3424,
+        496
+      ],
+      "id": "aa6809f1-1a07-40df-a205-348b95f92162",
+      "name": "Opportunity"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Search string/ keyword - {{ $json.keyword }}\nBusiness with avg rating and variance rating {{ $json.businesses }}\nTop 10 and nbottom 10 liked by customers {{ $json.providers }} \nTags for mentioned a lot in reviews - {{ $json.tags }}\nReviews  - {{ $json.texts }}\nCategories - {{ $json.categories }}\nPeopleAlsoAsk - {{ $json.peopleAlsoSearch }}\n\n\nAnalyze the dataset to provide a deep business study. Your job is to uncover what businesses are doing well, what they are failing at, and where opportunities exist.\n\nEach business record includes:\n\nBusiness title\n\nWebsite / domain\n\nSocial presence (Instagram, Facebook, LinkedIn, Twitter, YouTube, TikTok, Pinterest)\n\nPopular Times Histogram (hourly activity data from Google, showing occupancy/foot traffic patterns)\n\n\nOutput Requirements:\n\nMain req - (add number or percent for proof wherever needed esp volume)\n\nVolume / Visibility \n\nIs there enough business activity and presence?\n\nDo businesses have a strong digital footprint (socials, websites)?\n\nIs customer activity (via popular times) sufficient to signal demand?\n\nStrengths (What they are doing well)\n\nWhich businesses are standout examples of strong digital + physical presence? (share names of business with domain here)\n\nWhich are using multiple channels effectively? (share names of business with domain+ social here_\n\nWeaknesses (What they are not doing)\n\nMissing websites, socials, or low engagement.\n\nLow or inconsistent activity at physical locations.\n\nOpportunities / Differentiators\n\nWhere can new players enter and win?\n\nWhich gaps in online presence or customer engagement could be exploited?\n\nTop Businesses to Watch\n\nHighlight 3–5 businesses worth tracking.\n\nExplain why (e.g., strong brand, dominant traffic, smart social usage).\n\nTop but Underperforming Businesses\n\nIdentify businesses that should be leaders (size, location, reviews) but are not doing well.\n\nExplain what’s missing.\n\nInteresting Insights\n\nSurprising or unique observations from the dataset (e.g., big chains losing to small players, businesses busy offline but invisible online, etc.).\n\n\nStrict output format in json has to be only this\n\n\n{\n  \"volume_visibility\": {\n    \"summary\": \"string\",\n    \"examples\": [\"string\"]\n  },\n  \"strengths\": {\n    \"summary\": \"string\",\n    \"examples\": [\"string\"]\n  },\n  \"weaknesses\": {\n    \"summary\": \"string\",\n    \"examples\": [\"string\"]\n  },\n  \"opportunities\": {\n    \"summary\": \"string\",\n    \"examples\": [\"string\"]\n  },\n  \"top_businesses_to_watch\": [\n    { \"business\": \"string\", \"reason\": \"string\" }\n  ],\n  \"top_but_underperforming\": [\n    { \"business\": \"string\", \"reason\": \"string\" }\n  ],\n  \"interesting_insights\": [\"string\"],\n  \"summary\": \"string\"\n}\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a market research analyst specializing in local businesses. You have access to business data scraped from Google Maps and enriched with website/domain info, social media presence, and popular times histograms"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        3536,
+        1040
+      ],
+      "id": "17b028c0-23cb-43ae-ba08-086fc1021cf1",
+      "name": "Overall Market analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Flatten Opportunity JSON for Google Sheets\nreturn items.map((item, i) => {\n  const d = item.json || {};\n  const output = d.output || {};\n\n  // helper: flatten fields of an object\n  function flattenObject(obj, fields) {\n    if (!obj || typeof obj !== \"object\") return \"\";\n    return fields.map(f => obj[f] || \"\").filter(Boolean).join(\" | \");\n  }\n\n  return {\n    json: {\n      keyword: d.keyword || `row_${i+1}`,\n      volume: flattenObject(output.volume, [\"number\", \"answer\", \"rationale\"]),\n      underserved: flattenObject(output.underserved, [\"answer\", \"what_is_underserved\", \"rationale\"]),\n      end_customers: flattenObject(output.end_customers, [\"who\", \"rationale\"]),\n      arbitrage_newsletter: flattenObject(output.arbitrage_newsletter, [\"answer\", \"what_arbitrage\", \"rationale\"]),\n      high_ticket: flattenObject(output.high_ticket, [\"what_is_high_ticket\", \"answer\", \"rationale\"]),\n      summary: output.summary || \"\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        496
+      ],
+      "id": "32d342c4-a9b7-4dd3-b421-4fe76123f5ab",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Flatten Market Study JSON for Google Sheets\nreturn items.map((item, i) => {\n  const d = item.json || {};\n  const output = d.output || {};\n\n  // helper: flatten array of objects/strings\n  function flattenArray(arr, fields) {\n    if (!Array.isArray(arr)) return \"\";\n    return arr.map(obj => {\n      if (typeof obj === \"string\") return obj;\n      if (typeof obj === \"object\") {\n        return fields.map(f => obj[f] || \"\").filter(Boolean).join(\" | \");\n      }\n      return String(obj);\n    }).join(\" ; \");\n  }\n\n  function flattenObject(obj, fields) {\n    if (!obj || typeof obj !== \"object\") return \"\";\n    return fields.map(f => obj[f] || \"\").filter(Boolean).join(\" | \");\n  }\n\n  return {\n    json: {\n      keyword: d.keyword || `row_${i+1}`,\n      volume_visibility: flattenObject(output.volume_visibility, [\"summary\"]) \n                         + \" || \" + flattenArray(output.volume_visibility?.examples, []),\n      strengths: flattenObject(output.strengths, [\"summary\"]) \n                 + \" || \" + flattenArray(output.strengths?.examples, []),\n      weaknesses: flattenObject(output.weaknesses, [\"summary\"]) \n                  + \" || \" + flattenArray(output.weaknesses?.examples, []),\n      opportunities: flattenObject(output.opportunities, [\"summary\"]) \n                     + \" || \" + flattenArray(output.opportunities?.examples, []),\n      top_businesses_to_watch: flattenArray(output.top_businesses_to_watch, [\"business\", \"reason\"]),\n      top_but_underperforming: flattenArray(output.top_but_underperforming, [\"business\", \"reason\"]),\n      interesting_insights: flattenArray(output.interesting_insights, []),\n      summary: output.summary || \"\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3888,
+        1040
+      ],
+      "id": "ea36daf5-8d95-4d4f-973b-b0d7dd738c90",
+      "name": "Code3"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM",
+          "mode": "list",
+          "cachedResultName": "Final niche sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 575100896,
+          "mode": "list",
+          "cachedResultName": "Opportunities + TG",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM/edit#gid=575100896"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Keyword": "={{ $json.searchString }}",
+            "Volume": "={{ $json.volume }}",
+            "Opportunity that is underserved": "={{ $json.underserved }}",
+            "Who are their end customers": "={{ $json.end_customers}}",
+            "Arbitrage": "={{$json.arbitrage_newsletter}}",
+            "AOV": "={{$json.high_ticket}}",
+            "Summary": "={{ $json.summary }}"
+          },
+          "matchingColumns": [
+            "Keyword"
+          ],
+          "schema": [
+            {
+              "id": "Keyword",
+              "displayName": "Keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Volume",
+              "displayName": "Volume",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Opportunity that is underserved",
+              "displayName": "Opportunity that is underserved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Who are their end customers",
+              "displayName": "Who are their end customers",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Arbitrage",
+              "displayName": "Arbitrage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "AOV",
+              "displayName": "AOV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4384,
+        272
+      ],
+      "id": "d505572a-064f-4c5e-a9ee-71369a00f640",
+      "name": "Append or update row in sheet2",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        4096,
+        272
+      ],
+      "id": "d6a04d53-d4cc-4efe-be77-31bb24da3356",
+      "name": "Merge21"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        4256,
+        1040
+      ],
+      "id": "e81f44d1-8e92-461b-ba62-9b6758c6bea6",
+      "name": "Merge22"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM",
+          "mode": "list",
+          "cachedResultName": "Final niche sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1468300642,
+          "mode": "list",
+          "cachedResultName": "Market study in detail",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM/edit#gid=1468300642"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Keyword": "={{ $json.searchString }}",
+            "Volume visibility": "={{ $json.volume_visibility }}",
+            "Strengths": "={{ $json.strengths }}",
+            "Weaknesses": "={{ $json.weaknesses }}",
+            "Opportunities": "={{ $json.opportunities }}",
+            "Top businesses to watch": "={{ $json.top_businesses_to_watch }}",
+            "Top but underperforming": "={{ $json.top_but_underperforming }}",
+            "Interesting insights": "={{ $json.interesting_insights }}",
+            "Summary ": "={{ $json.summary }}"
+          },
+          "matchingColumns": [
+            "Keyword"
+          ],
+          "schema": [
+            {
+              "id": "Keyword",
+              "displayName": "Keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Volume visibility",
+              "displayName": "Volume visibility",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Strengths",
+              "displayName": "Strengths",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Weaknesses",
+              "displayName": "Weaknesses",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Opportunities",
+              "displayName": "Opportunities",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Top businesses to watch",
+              "displayName": "Top businesses to watch",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Top but underperforming",
+              "displayName": "Top but underperforming",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Interesting insights",
+              "displayName": "Interesting insights",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Summary ",
+              "displayName": "Summary ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4544,
+        1136
+      ],
+      "id": "a018a3f9-a80f-4de0-b5a4-6c1961928618",
+      "name": "Append or update row in sheet3",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 3,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        5520,
+        304
+      ],
+      "id": "35d4ce62-236e-435a-ad9f-fe81ae794867",
+      "name": "Merge23"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Inputs (from analysis data):\n\nMost common niche: {{ $json.most_common_niches }}\n\nMarket volume: {{ $json.volume }}\n\nUnderserved opportunities: {{ $json.underserved }}\n\nEnd customers (target newsletter subscribers): {{ $json.end_customers }}\n\nHigh-ticket potential (customer spending capacity): {{ $json.high_ticket }}\n\nNewsletter arbitrage opportunity: {{ $json.arbitrage_newsletter }}\n\nInteresting market insights: {{ $json.interesting_insights }}\n\nTask:\n\nBased on these inputs, generate 30 newsletter ideas that meet these requirements:\n\nTopic & Theme → Catchy, highly relevant to the end customers’ needs (not business owners). Should map to the most common niche(s), underserved opportunities, or unique market insights. \n\nUnique Angle → Make the topic stand out (insider knowledge, hidden pain points, trend spotting, exclusive local insights, actionable advice also something around DIY too).\n\nValue for End Customers → Clearly explain what subscribers (residents, homeowners, renters, etc.) will gain — e.g., money savings, better choices, time saved, lifestyle improvements, inspiration, or avoiding common mistakes.\n\nStrong Subject Lines → Provide 2 emotionally engaging, highly clickable subject line options for each topic.\n\nExcitement Factor → Explain why subscribers would feel compelled to open this newsletter and keep reading every week.\n\nBusiness Rationale → Show how this topic indirectly creates monetization opportunities by aligning with high-volume niches, underserved pain points, newsletter arbitrage potential, or high-ticket local spending patterns.\n\nStrict output format in json has to be only this\n\n[\n  {\n    \"topic\": \"string\",\n    \"angle\": \"string\",\n    \"end_customer_value\": \"string\",\n    \"subject_lines\": [\"string1\", \"string2\"],\n    \"excitement_factor\": \"string\",\n    \"business_rationale\": \"string\"\n  }\n]\n\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a newsletter strategist and content creator.\nYour goal is to generate 30 outstanding newsletter topics and angles that excite and engage end customers of local businesses. "
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        5984,
+        944
+      ],
+      "id": "45219feb-a82c-49cd-87e2-98d2de271448",
+      "name": "AI Agent",
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        5856,
+        1152
+      ],
+      "id": "f87802d8-6732-4651-8a23-fe6c74394f83",
+      "name": "OpenAI Chat Model3",
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "[\n  {\n    \"topic\": \"string\",\n    \"angle\": \"string\",\n    \"end_customer_value\": \"string\",\n    \"subject_lines\": [\"string1\", \"string2\"],\n    \"excitement_factor\": \"string\",\n    \"business_rationale\": \"string\"\n  }\n]\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        6160,
+        1152
+      ],
+      "id": "7fc03663-35e2-4934-946f-e82cd445ed12",
+      "name": "Structured Output Parser3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: Flatten Newsletter Ideas JSON for Google Sheets\nreturn items.flatMap((item, i) => {\n  const output = item.json.output || [];\n\n  // Ensure output is always an array\n  const arr = Array.isArray(output) ? output : [output];\n\n  return arr.map((o, j) => {\n    return {\n      json: {\n        row_id: `row_${i+1}_${j+1}`,\n        topic: o.topic || \"\",\n        angle: o.angle || \"\",\n        end_customer_value: o.end_customer_value || \"\",\n        subject_lines: Array.isArray(o.subject_lines) ? o.subject_lines.join(\" ; \") : (o.subject_lines || \"\"),\n        excitement_factor: o.excitement_factor || \"\",\n        business_rationale: o.business_rationale || \"\"\n      }\n    };\n  });\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6352,
+        960
+      ],
+      "id": "a66bf437-4ee6-48a7-93ff-d7786bcf1eea",
+      "name": "Code4"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        6816,
+        1664
+      ],
+      "id": "3f625a55-4b70-40f0-b263-a8cc1f1941a8",
+      "name": "Merge24"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.URL }}",
+          "mode": "url"
+        },
+        "title": "Sheet 8 NL ideas",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        7024,
+        1664
+      ],
+      "id": "63dede9e-09cd-4a38-a286-692bd6b90a9d",
+      "name": "Create sheet6",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        7408,
+        1248
+      ],
+      "id": "bb21867f-5404-4fa9-a261-8ea087e59f19",
+      "name": "Merge25"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.sheetId }}",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "spreadsheetId",
+              "displayName": "spreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetId",
+              "displayName": "sheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "index",
+              "displayName": "index",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sheetType",
+              "displayName": "sheetType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gridProperties",
+              "displayName": "gridProperties",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "neighborhood",
+              "displayName": "neighborhood",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "street",
+              "displayName": "street",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "postalCode",
+              "displayName": "postalCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phoneUnformatted",
+              "displayName": "phoneUnformatted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "emails",
+              "displayName": "emails",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lat",
+              "displayName": "lat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lng",
+              "displayName": "lng",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "plusCode",
+              "displayName": "plusCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        7648,
+        1248
+      ],
+      "id": "dc5d8e91-e857-414c-9247-dfc91260e28e",
+      "name": "Append or update row in sheet4",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": " ## Data input + Google Map scraping",
+        "height": 1216,
+        "width": 1728,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2896,
+        672
+      ],
+      "typeVersion": 1,
+      "id": "23e9c84a-b0a6-48e7-94d5-549c9672ab66",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "                                                                                                          \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+        "height": 2032,
+        "width": 1728
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -432,
+        1168
+      ],
+      "typeVersion": 1,
+      "id": "e0a600cc-ddcb-40fe-bdee-d4d3becb1c92",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": " ## Categorizing data and filtering thew ones we need to calulate score cards for market research ",
+        "height": 2032,
+        "width": 1728,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1136,
+        64
+      ],
+      "typeVersion": 1,
+      "id": "ddf3c91a-b340-410c-a6a4-504b4006f7fe",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": " ## Calculating scores for Review velocity, Provider Density, Average Rating, Incumbency, Variance of rating etc. ",
+        "height": 2304,
+        "width": 1728,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1392,
+        -784
+      ],
+      "typeVersion": 1,
+      "id": "3c701c70-40fb-4161-86bd-b6490177feb4",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## AI agent node that identifies a. Niche, b. Opportunites to learn about the gaps and build profitable business on top of it, c. Study business and market landscape in detail",
+        "height": 2288,
+        "width": 1728,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3200,
+        -768
+      ],
+      "typeVersion": 1,
+      "id": "cd82d681-9194-4966-ade1-5aa5badf3944",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "### This AI agent provides Newsletter topics, angles, etc to build newsletter for end customers ",
+        "height": 2288,
+        "width": 2384,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        5760,
+        272
+      ],
+      "typeVersion": 1,
+      "id": "82ce3290-7bb7-4376-8c5d-2497cb451148",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "\n## 🗂️ **Local Market Research Workflow**\n\n### Final research -  https://docs.google.com/spreadsheets/d/1DO_KmWOZ0ecml4heS7p2wr63aZI3eVLxUedTBV6yPSM/edit?gid=0#gid=0 \n\n## 🎯 Core Objective\n\nTurn Google Maps business data + AI analysis into **market intelligence, opportunity identification, and newsletter-ready insights** for any niche in a specific location.\n\n\n## **Step 1: Input & Setup**\n\n* **User specifies niche + location** (e.g., *“wedding planning, Miami, Florida”*).\n* Location must be **city + state (USA)** for precision.\n* Multiple keywords allowed per run, but **one location per workflow**.\n\n---\n\n## Step 2: Data Collection (Google Maps Scraper)\n\n* Scrapes **business details**: title, domain, address, contact info.\n* Collects **reviews**: volume, velocity, customer sentiment.\n* Extracts **social presence**: Instagram, Facebook, LinkedIn, TikTok, etc.\n* Captures **popular times histograms**: foot traffic & activity patterns.\n* Gathers **reviewer details** & People Also Search references.\n\n---\n\n## Step 3: Market Metrics & Calculations\n\n* **Review Velocity** → how fast new reviews are coming in.\n* **Provider Density** → how many players exist in that niche locally.\n* **Average & Variance of Ratings** → satisfaction & consistency.\n* **Top 10 / Bottom 10 players** → strongest vs weakest by reviews.\n* **Incumbency Mapping** → identify established leaders vs newcomers.\n\n---\n\n##  Step 4: AI Market Analysis\n\nAgent synthesizes scraped data to produce:\n\n* **Most common niches** → dominant patterns.\n* **Missing high-potential niches** → unmet demand.\n* **Unique/differentiated niches** → where small players stand out.\n* **Opportunities** → underserved gaps, low-hanging fruit.\n* **Market/business study**:\n\n  * Volume & visibility\n  * Strengths & weaknesses\n  * Opportunities/differentiators\n  * Top businesses to watch\n  * Top but underperforming businesses\n  * Interesting insights & anomalies\n\n---\n\n## Step 5: Newsletter & Monetization Strategy\n\n* Check if the niche is **high-ticket** (spending power).\n* Identify **target end customers** and their motivations.\n* Build **newsletter thesis**:\n\n  * Topics & themes\n  * Unique angles\n  * Subject lines\n  * End-customer value hooks\n  * Excitement factors for subscribers\n  * Business rationale (ads, lead gen, partnerships).\n\n---\n\n##  Outcome & Value\n\n* **Treasure chest of insights**: market gaps, competitors, opportunities.\n* **Investment lens**: know where to start, expand, or compete.\n* **Newsletter growth engine**: generate engaging, monetizable content.\n* **Repeatable workflow**: works for *any niche + location* in the USA.\n\n\n",
+        "height": 1728,
+        "width": 768,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -4368,
+        192
+      ],
+      "typeVersion": 1,
+      "id": "9359a754-e247-43a1-991b-c979a663186f",
+      "name": "Sticky Note6"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Create spreadsheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Overview",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Contact",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Social",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Rating",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Review",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Lead enrichment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "popularTimesHistogram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Overview": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contact": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge5",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Social": {
+      "main": [
+        [
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge6",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "Merge19",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rating": {
+      "main": [
+        [
+          {
+            "node": "Merge4",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge7",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Review": {
+      "main": [
+        [
+          {
+            "node": "Merge8",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge9",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          },
+          {
+            "node": "Merge15",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Lead enrichment": {
+      "main": [
+        [
+          {
+            "node": "Merge10",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge11",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "popularTimesHistogram": {
+      "main": [
+        [
+          {
+            "node": "Merge12",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge13",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 6
+          },
+          {
+            "node": "Merge19",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Tags",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Review velocity",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GROUPED Provider density",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Average rating and rating variance1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge20",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Create spreadsheet": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge3",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge4",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge8",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge10",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge12",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge24",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "Create sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge3": {
+      "main": [
+        [
+          {
+            "node": "Create sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge4": {
+      "main": [
+        [
+          {
+            "node": "Create sheet2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sheet": {
+      "main": [
+        [
+          {
+            "node": "Merge5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge5": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge6": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet9",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sheet1": {
+      "main": [
+        [
+          {
+            "node": "Merge6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge7": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sheet2": {
+      "main": [
+        [
+          {
+            "node": "Merge7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sheet3": {
+      "main": [
+        [
+          {
+            "node": "Merge9",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge8": {
+      "main": [
+        [
+          {
+            "node": "Create sheet3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge9": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet11",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sheet4": {
+      "main": [
+        [
+          {
+            "node": "Merge11",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge10": {
+      "main": [
+        [
+          {
+            "node": "Create sheet4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge11": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet12",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sheet5": {
+      "main": [
+        [
+          {
+            "node": "Merge13",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge12": {
+      "main": [
+        [
+          {
+            "node": "Create sheet5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge13": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet13",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tags": {
+      "main": [
+        [
+          {
+            "node": "Merge15",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Niche identifyer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge15": {
+      "main": [
+        [
+          {
+            "node": "GROUPED TAGS AND REVIEW FOR AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review velocity": {
+      "main": [
+        [
+          {
+            "node": "Merge20",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge20": {
+      "main": [
+        [
+          {
+            "node": "Grouped RV for AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Average rating and rating variance1": {
+      "main": [
+        [
+          {
+            "node": "Top and bottom 10 players (INC)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Group AR and VR",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "All business INC1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "INC per kw",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group AR and VR": {
+      "main": [
+        [
+          {
+            "node": "AVG AR AND VAR ",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge18",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Grouped RV for AI": {
+      "main": [
+        [
+          {
+            "node": "AVG RV per kw",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge18",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROUPED Provider density": {
+      "main": [
+        [
+          {
+            "node": "PD ",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge18",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "GROUPED TAGS AND REVIEW FOR AI": {
+      "main": [
+        [
+          {
+            "node": "Merge18",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "AVG RV per kw": {
+      "main": [
+        [
+          {
+            "node": "Merge14",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PD ": {
+      "main": [
+        [
+          {
+            "node": "Merge14",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "INC per kw": {
+      "main": [
+        [
+          {
+            "node": "Merge14",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "AVG AR AND VAR ": {
+      "main": [
+        [
+          {
+            "node": "Merge14",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Top and bottom 10 players (INC)": {
+      "main": [
+        [
+          {
+            "node": "Merge18",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge14": {
+      "main": [
+        [
+          {
+            "node": "Merge16",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge21",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge22",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge18": {
+      "main": [
+        [
+          {
+            "node": "Niche identifyer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Opportunity",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge17",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Niche identifyer",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Niche identifyer": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge16": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Merge16",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge23",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Opportunity",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Opportunity",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Overall Market analysis",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser2": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Overall Market analysis",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge19": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "Merge17",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge17": {
+      "main": [
+        [
+          {
+            "node": "Overall Market analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Overall Market analysis": {
+      "main": [
+        [
+          {
+            "node": "Code3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Merge21",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge23",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge21": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge22": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code3": {
+      "main": [
+        [
+          {
+            "node": "Merge22",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge23",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge23": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser3": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code4": {
+      "main": [
+        [
+          {
+            "node": "Merge24",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge25",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge24": {
+      "main": [
+        [
+          {
+            "node": "Create sheet6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sheet6": {
+      "main": [
+        [
+          {
+            "node": "Merge25",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge25": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "79fd93c2-f93c-4f58-b213-74b21fe92607",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f7f9df52c8eb5e098f923aaccc3ca36f11673f0e4b8b20826a84e459d4ef2cd6"
+  },
+  "id": "wRoL92fxCWXHelUb",
+  "tags": []
+}

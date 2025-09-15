@@ -1,0 +1,409 @@
+{
+  "name": "PODCAST - Newsletter creation workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -272,
+        -32
+      ],
+      "id": "b49f14a3-9149-4ef3-9e4b-1f9d823bf77c",
+      "name": "When chat message received",
+      "webhookId": "5399f4e0-d86f-4755-b43b-dd5e9aa0ea09"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a research strategist with access to web search (Perplexity-style).  \n\nYour role is to perform deep research around a given newsletter topic/angle, and return structured, evidence-based findings.  \nAlways include citations (links/sources) wherever possible.  \n\n### Research Goals:\na. Topic strength online → How popular and visible is this topic currently?  \nb. Article volume → Approximately how many relevant articles/posts exist?  \nc. Missing pieces → What is not being covered that could be a unique angle?  \nd. Solid data → Provide stats, numbers, or trends that back up insights.  \ne. Citations → List sources that support your findings.\nf. Relevant local event, event name, venue, event and source url and event date\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        -64,
+        -32
+      ],
+      "id": "302f02f3-b702-438e-ada5-d5c364afee1b",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "perplexity/sonar-deep-research",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        160
+      ],
+      "id": "08c63e95-7b5d-4fab-9d18-d8725a675d06",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "REPLACE_WITH_YOUR_OPENROUTER_CREDENTIAL_ID",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "folderId": "19gROtP-brt1f_yhyRqi11n27drGAOh70",
+        "title": "=Local NL research {{ $now }}"
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        304,
+        -80
+      ],
+      "id": "df722fe2-fc93-4a67-b294-7b1c33a766ad",
+      "name": "Create a document",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_DOCS_CREDENTIAL_ID",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        528,
+        48
+      ],
+      "id": "7ed02322-128d-4d4c-9efc-62b9945983c4",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "=https://docs.google.com/document/d/{{ $json.id }}/edit",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "text": "={{ $json.output }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        736,
+        -176
+      ],
+      "id": "58e2d040-d47d-450a-a53d-5e430b72ed6b",
+      "name": "Update a document",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_DOCS_CREDENTIAL_ID",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the best local-market newsletter writer.  \nYou ALWAYS write with authority, clarity, and customer-first storytelling.  \n\nYou will be given research findings (structured JSON or long-form text) in:  \n{{$json.output}}  \n\nYour job: turn this research into a polished **subscriber-facing newsletter article**.  \n\n### Rules:\n- Write in a **clear, engaging, trustworthy** tone (newsletter style).  \n- Speak directly to end customer as your audience.  \n- Reframe dry research into **actionable, relatable insights**.  \n- Organize as:\n  1. **Compelling headline** (hook-driven, short, scroll-stopping)  \n  2. **Intro paragraph** (context, why it matters now)  \n  3. **5 insider secrets / lessons** (each with bold mini-headline + short explanation, backed by research)  \n  4. **Key data points / proof** (use stats from {{$json.output}}, keep citations as inline [#] markers)  \n  5. **Takeaway or CTA** (what readers should do next, e.g. vet providers, DIY checks, subscribe, share).  \n\n### Must-do:\n- Use the research only as **source material** — never just copy-paste it.  \n- Always include at least 3 citations (link-style [#] that point back to sources in {{$json.output}}).  \n- Keep total length ~400–600 words.  \n\nOutput: **Finished newsletter draft** (ready to send).  \n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        912,
+        32
+      ],
+      "id": "81d24563-9c71-4e92-8422-385c88686b38",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "model": "anthropic/claude-sonnet-4",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        896,
+        208
+      ],
+      "id": "2fd04a7d-6daf-49c8-94ff-d1d9a4c02bde",
+      "name": "OpenRouter Chat Model1",
+      "credentials": {
+        "openRouterApi": {
+          "id": "REPLACE_WITH_YOUR_OPENROUTER_CREDENTIAL_ID",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "folderId": "19gROtP-brt1f_yhyRqi11n27drGAOh70",
+        "title": "=Newsletter issue {{ $now }}"
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        -64
+      ],
+      "id": "b5bd2c54-a289-4c90-b3e4-b47481a4be0a",
+      "name": "Create a document1",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_DOCS_CREDENTIAL_ID",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1600,
+        32
+      ],
+      "id": "3f8e86c7-122e-4578-91f7-a8945b5c3821",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "=https://docs.google.com/document/d/{{ $json.id }}/edit",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "text": "={{ $json.output }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        32
+      ],
+      "id": "0169b102-51b8-42c7-8536-5e4ad18fd0a1",
+      "name": "Update a document1",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_DOCS_CREDENTIAL_ID",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Chat with AI agent that helps you do deep research on NL angles and topics \n",
+        "height": 672,
+        "width": 544,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -336,
+        -224
+      ],
+      "typeVersion": 1,
+      "id": "3eec9f5f-b39b-4cc0-b374-6a805d550c40",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Creates and stores Research for each chat ",
+        "height": 672,
+        "width": 608
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        224,
+        -224
+      ],
+      "typeVersion": 1,
+      "id": "5e1b4859-90e1-4ad0-ac0d-a6f79560919f",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## AI agent that helps you create and write newsletter based on research",
+        "height": 816,
+        "width": 368,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        864,
+        -272
+      ],
+      "typeVersion": 1,
+      "id": "00e5a918-4533-43d6-8804-46bfa899a95a",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Creates and stores NL copy for each chat ",
+        "height": 672,
+        "width": 768
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1248,
+        -224
+      ],
+      "typeVersion": 1,
+      "id": "f8b4c439-e619-4484-8f6c-833274cb7ce1",
+      "name": "Sticky Note3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Create a document",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Create a document": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Update a document",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Create a document1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Create a document1": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Update a document1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "82649b92-6d7e-446d-9692-beb278ba6a63",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f7f9df52c8eb5e098f923aaccc3ca36f11673f0e4b8b20826a84e459d4ef2cd6"
+  },
+  "id": "B5FNGftx4eIUhyKc",
+  "tags": []
+}
