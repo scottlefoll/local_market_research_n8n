@@ -121,9 +121,21 @@ This project is provided as-is for educational and business automation purposes.
 - Customize the AI prompts for your specific industry
 - Regular backups of your Google Sheets data recommended
 
+"This is a local niche research workflow that can power so many use cases — a SaaS product, a lead gen agency, even a boring local business.
+
+https://thevibemarketer.beehiiv.com/p/free-local-niche-research-workflow
+
+It’s built on n8n and it’s free to help you identify underserved local niches, find pain points and more.
+
+Tbh it’s pretty complicated, so I’ve added an extra guide to walk through the scraper setup as well. Remember, you’ll need to add your own API keys to get this working. AI is your friend (upload to JSON to GPT-5 if you face issues, with the episode, etc.)
+
+Here’s the JSON file on Github: https://github.com/the-vibe-marketers/local_market_research_n8n
+
+The Scraper Setup Process on Apify: https://docs.google.com/document/d/1I5sP2gHeDCgoK6TixX9ALobHzTciRVYWjtwG3jbnQkY/edit?pli=1&tab=t.0
+
 ## 🔗 Resources
 
 - [n8n Documentation](https://docs.n8n.io)
 - [Apify Google Maps Scraper](https://apify.com/compass/google-maps-scraper)
 - [Google Sheets API](https://developers.google.com/sheets/api)
-- [OpenAI API Docs](https://platform.openai.com/docs)
+- [OpenAI API Docs](https://platform.openai.com/docs) "
